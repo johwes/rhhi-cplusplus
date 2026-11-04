@@ -61,7 +61,7 @@ presets: `syft-spdx`, `syft`/`syft-cyclonedx`, `trivy`/`trivy-spdx`.
 > `"manifests": []`), and `podman push` has no referrer/attestation
 > flags. The SBOM is a build-time file; Quay shows it via its own
 > scanning, not as an attached artifact. Attaching it as a referrer
-> needs `oras push` or `cosign attest` (neither installed here).
+> needs `oras push` or `cosign attest` (see next section).
 
 ### syft flow (alternative, works with Docker too)
 
@@ -73,6 +73,44 @@ syft scan docker-archive:/tmp/image.tar -o spdx-json=sbom.spdx.json
 syft scan registry:quay.io/jwesterl/rhhi-cplusplus:latest -o spdx-json=sbom.spdx.json
 syft scan registry:quay.io/jwesterl/rhhi-cplusplus:latest -o table | grep -E 'libcurl|openssl'
 ```
+
+## Signing & attestations (cosign, keyless OIDC)
+
+cosign (`~/.local/bin`, v3.1.4 — no root needed) signs the image and
+attaches the SBOM and vulnerability scan as DSSE attestations (OCI
+referrers on the image digest). No long-lived keys: signing uses your
+OIDC identity via Fulcio, recorded in Rekor. These steps are
+interactive once (browser OIDC login):
+
+```sh
+TAG=$(git rev-parse --short HEAD)
+IMG=quay.io/jwesterl/rhhi-cplusplus:$TAG
+
+# sign the image
+cosign sign --yes $IMG
+
+# attach the SBOM
+cosign attest --predicate sbom.spdx.json --type spdx --yes $IMG
+
+# attach the vulnerability scan (grype JSON, committed as vuln.grype.json)
+grype registry:$IMG -o json=vuln.grype.json
+cosign attest --predicate vuln.grype.json --type vuln --yes $IMG
+```
+
+Verify (pin the identity/issuer shown at signing time):
+
+```sh
+cosign verify $IMG \
+  --certificate-identity <you@example.com> \
+  --certificate-oidc-issuer https://accounts.google.com
+cosign verify-attestation --type spdx $IMG \
+  --certificate-identity <you@example.com> \
+  --certificate-oidc-issuer https://accounts.google.com
+```
+
+The committed `vuln.grype.json` is a point-in-time sample: 12 matches
+(4 High, 6 Medium, 2 Low) — even hardened-pipeline libs carry CVEs,
+which is precisely why the RPM-visible dynamic approach matters.
 
 ## Notes (verified with podman against `core-runtime:latest`)
 
