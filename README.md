@@ -12,10 +12,11 @@ runtime image without a traditional multi-stage `COPY` of system files.
   `ca-certificates-bundle`) into the runtime rootfs. The mount is never
   committed to a layer.
 
-## Build
+## Build (tagged by git commit)
 
 ```sh
-podman build -t rhhi-cplusplus .
+TAG=$(git rev-parse --short HEAD)
+podman build -t quay.io/jwesterl/rhhi-cplusplus:$TAG -t quay.io/jwesterl/rhhi-cplusplus:latest .
 ```
 
 With Docker (requires BuildKit for the `--mount=type=bind,from=...` step):
@@ -38,27 +39,39 @@ the image carries a real RPM database — so SBOM generators see the
 actual packages (this is what breaks if you `COPY` bare `.so` files or
 statically link instead).
 
-Push to Quay and scan with [syft](https://github.com/anchore/syft):
+### Native podman flow (primary)
 
 ```sh
-podman login quay.io
-podman tag rhhi-cplusplus quay.io/jwesterl/rhhi-cplusplus:latest
+TAG=$(git rev-parse --short HEAD)
+podman build --sbom=syft-spdx --sbom-output sbom.spdx.json \
+  -t quay.io/jwesterl/rhhi-cplusplus:$TAG \
+  -t quay.io/jwesterl/rhhi-cplusplus:latest .
+podman push quay.io/jwesterl/rhhi-cplusplus:$TAG
 podman push quay.io/jwesterl/rhhi-cplusplus:latest
-
-# from the registry
-syft scan registry:quay.io/jwesterl/rhhi-cplusplus:latest -o spdx-json=sbom.spdx.json
-
-# or locally via podman (syft has no podman driver, so export first)
-podman save -o /tmp/image.tar rhhi-cplusplus:latest
-syft scan docker-archive:/tmp/image.tar -o spdx-json=sbom.spdx.json
 ```
 
-A sample `sbom.spdx.json` (61 packages, SPDX 2.3) is committed here —
-it lists `libcurl 8.23.0`, `openssl 3.5.9`, `ca-certificates-bundle`,
-etc. with `rpm` as the package type:
+The committed `sbom.spdx.json` (62 packages, SPDX 2.3) was produced this
+way — it lists `libcurl 8.23.0`, `openssl 3.5.9`,
+`ca-certificates-bundle`, etc. with `rpm` as the package type. Available
+presets: `syft-spdx`, `syft`/`syft-cyclonedx`, `trivy`/`trivy-spdx`.
+
+> Limitation, verified 2026-11-04: `podman push` does **not** attach the
+> SBOM as an OCI referrer — the referrers list for the pushed digest is
+> empty (`GET /v2/jwesterl/rhhi-cplusplus/referrers/<digest>` →
+> `"manifests": []`), and `podman push` has no referrer/attestation
+> flags. The SBOM is a build-time file; Quay shows it via its own
+> scanning, not as an attached artifact. Attaching it as a referrer
+> needs `oras push` or `cosign attest` (neither installed here).
+
+### syft flow (alternative, works with Docker too)
 
 ```sh
-syft scan docker-archive:/tmp/image.tar -o table | grep -E 'libcurl|openssl'
+podman save -o /tmp/image.tar rhhi-cplusplus:latest
+syft scan docker-archive:/tmp/image.tar -o spdx-json=sbom.spdx.json
+
+# or straight from the registry after pushing
+syft scan registry:quay.io/jwesterl/rhhi-cplusplus:latest -o spdx-json=sbom.spdx.json
+syft scan registry:quay.io/jwesterl/rhhi-cplusplus:latest -o table | grep -E 'libcurl|openssl'
 ```
 
 ## Notes (verified with podman against `core-runtime:latest`)
