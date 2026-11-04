@@ -31,6 +31,36 @@ podman run --rm rhhi-cplusplus
 podman run --rm rhhi-cplusplus https://example.com
 ```
 
+## SBOM
+
+Because the runtime libraries are installed via `dnf --installroot=/`,
+the image carries a real RPM database — so SBOM generators see the
+actual packages (this is what breaks if you `COPY` bare `.so` files or
+statically link instead).
+
+Push to Quay and scan with [syft](https://github.com/anchore/syft):
+
+```sh
+podman login quay.io
+podman tag rhhi-cplusplus quay.io/johwes/rhhi-cplusplus:latest
+podman push quay.io/johwes/rhhi-cplusplus:latest
+
+# from the registry
+syft scan registry:quay.io/johwes/rhhi-cplusplus:latest -o spdx-json=sbom.spdx.json
+
+# or locally via podman (syft has no podman driver, so export first)
+podman save -o /tmp/image.tar rhhi-cplusplus:latest
+syft scan docker-archive:/tmp/image.tar -o spdx-json=sbom.spdx.json
+```
+
+A sample `sbom.spdx.json` (61 packages, SPDX 2.3) is committed here —
+it lists `libcurl 8.23.0`, `openssl 3.5.9`, `ca-certificates-bundle`,
+etc. with `rpm` as the package type:
+
+```sh
+syft scan docker-archive:/tmp/image.tar -o table | grep -E 'libcurl|openssl'
+```
+
 ## Notes (verified with podman against `core-runtime:latest`)
 
 - This base's `dnf` rejects `--nodocs`; the Dockerfile uses
