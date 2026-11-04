@@ -89,8 +89,10 @@ IMG=quay.io/jwesterl/rhhi-cplusplus:$TAG
 # sign the image
 cosign sign --yes $IMG
 
-# attach the SBOM
-cosign attest --predicate sbom.spdx.json --type spdx --yes $IMG
+# attach the SBOM (NB: --type spdxjson, not spdx — cosign v3 embeds spdx
+# as a legacy string predicate, which fails its own bundle self-check
+# with "invalid attestation: decoding json")
+cosign attest --predicate sbom.spdx.json --type spdxjson --yes $IMG
 
 # attach the vulnerability scan (grype JSON, committed as vuln.grype.json)
 grype registry:$IMG -o json=vuln.grype.json
@@ -103,7 +105,7 @@ Verify (pin the identity/issuer shown at signing time):
 cosign verify $IMG \
   --certificate-identity <you@example.com> \
   --certificate-oidc-issuer https://accounts.google.com
-cosign verify-attestation --type spdx $IMG \
+cosign verify-attestation --type spdxjson $IMG \
   --certificate-identity <you@example.com> \
   --certificate-oidc-issuer https://accounts.google.com
 ```
