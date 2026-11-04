@@ -6,13 +6,19 @@ runtime image without a traditional multi-stage `COPY` of system files.
 ## How it works
 
 - Stage 1 (`-builder`) compiles `main.cpp` with `libcurl-devel`.
-- Stage 2 (`core-runtime`, no shell/dnf) bind-mounts the builder filesystem
+- Stage 2 (`core-runtime`) bind-mounts the builder filesystem
   at `/builder` for a single `RUN` step and uses the builder's `dnf` with
   `--installroot=/` to install only runtime libs (`libcurl`, `openssl`,
-  `ca-certificates`) into the runtime rootfs. The mount is never committed
-  to a layer.
+  `ca-certificates-bundle`) into the runtime rootfs. The mount is never
+  committed to a layer.
 
-## Build (requires BuildKit)
+## Build
+
+```sh
+podman build -t rhhi-cplusplus .
+```
+
+With Docker (requires BuildKit for the `--mount=type=bind,from=...` step):
 
 ```sh
 DOCKER_BUILDKIT=1 docker build -t rhhi-cplusplus .
@@ -21,8 +27,8 @@ DOCKER_BUILDKIT=1 docker build -t rhhi-cplusplus .
 ## Run
 
 ```sh
-docker run --rm rhhi-cplusplus
-docker run --rm rhhi-cplusplus https://example.com
+podman run --rm rhhi-cplusplus
+podman run --rm rhhi-cplusplus https://example.com
 ```
 
 ## Notes (verified with podman against `core-runtime:latest`)
