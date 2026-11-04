@@ -42,11 +42,11 @@ Push to Quay and scan with [syft](https://github.com/anchore/syft):
 
 ```sh
 podman login quay.io
-podman tag rhhi-cplusplus quay.io/johwes/rhhi-cplusplus:latest
-podman push quay.io/johwes/rhhi-cplusplus:latest
+podman tag rhhi-cplusplus quay.io/jwesterl/rhhi-cplusplus:latest
+podman push quay.io/jwesterl/rhhi-cplusplus:latest
 
 # from the registry
-syft scan registry:quay.io/johwes/rhhi-cplusplus:latest -o spdx-json=sbom.spdx.json
+syft scan registry:quay.io/jwesterl/rhhi-cplusplus:latest -o spdx-json=sbom.spdx.json
 
 # or locally via podman (syft has no podman driver, so export first)
 podman save -o /tmp/image.tar rhhi-cplusplus:latest
