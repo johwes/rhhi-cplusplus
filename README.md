@@ -91,8 +91,8 @@ podman push quay.io/jwesterl/rhhi-cplusplus:$TAG
 podman push quay.io/jwesterl/rhhi-cplusplus:latest
 ```
 
-The committed `sbom.spdx.json` (62 packages, SPDX 2.3) was produced this
-way — it lists `libcurl 8.23.0`, `openssl 3.5.9`,
+The committed `sbom.spdx.json` (61 packages, SPDX 2.3) was produced this
+way — it lists `libcurl 8.23.0`, `openssl-libs 3.5.9`,
 `ca-certificates-bundle`, etc. with `rpm` as the package type. Available
 presets: `syft-spdx`, `syft`/`syft-cyclonedx`, `trivy`/`trivy-spdx`.
 
@@ -181,6 +181,15 @@ which is precisely why the RPM-visible dynamic approach matters.
 - The base already ships `ca-certificates-bundle`, which conflicts with a
   plain `ca-certificates` install — so the Dockerfile installs
   `ca-certificates-bundle`.
+- Only `openssl-libs` is installed, not the `openssl` CLI: `libcurl`
+  already Requires `libssl.so.3`/`libcrypto.so.3`, so `dnf` pulls the
+  shared libraries automatically and the 1 MB `/usr/bin/openssl`
+  multi-tool never lands in the image. Same logic applies to any lib —
+  depend on the soname, not the tool package.
+- Client hardening in `main.cpp`: redirects capped at 5
+  (`CURLOPT_MAXREDIRS`) and restricted to http/https
+  (`CURLOPT_REDIR_PROTOCOLS_STR`) so a malicious endpoint can't bounce
+  the client into `file://` or internal protocols.
 - Verified: app returns `HTTP status: 200`, `libcurl.so.4`/`libssl.so.3`
   present, RPM DB updated at `/usr/lib/sysimage/rpm/rpmdb.sqlite`, and no
   `dnf`/`rpm` binaries in the final image.
