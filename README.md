@@ -121,6 +121,20 @@ which is precisely why the RPM-visible dynamic approach matters.
   to `USER 65532` for the final image.
 - `LD_LIBRARY_PATH`/`RPM_CONFIGDIR` are `export`ed: a `VAR=x cmd1 && cmd2`
   prefix only applies to `cmd1`, which broke the chained `dnf clean`.
+- The builder is bind-mounted via its stage name (`from=builder`), so the
+  image reference stays DRY — verified to work with podman/buildah.
+- The runtime `rm -rf /var/cache/dnf /var/cache/yum /var/log/dnf* ...`
+  removes `dnf5.log` (~78 KB) that `dnf clean all` leaves behind.
+- Binary hardening (verified with `readelf`): `DYN` (PIE), `BIND_NOW`
+  (full RELRO), symbol table stripped (18.7 KB → 15.0 KB).
+  `-fstack-protector-strong` and `-D_FORTIFY_SOURCE=3` are compiled in;
+  this tiny program has no stack buffers so no canary is emitted
+  (protector instruments only functions with addressable stack objects).
+- Watch for RPM scriptlets (`%pre`/`%post`): `dnf --installroot=/` runs
+  them, and they need a shell/utilities the runtime may lack. The
+  packages used here have lightweight scriptlets that succeed, but if a
+  future package fails, escape with `--setopt=tsflags=noscripts` and
+  perform any required initialization manually.
 - The base already ships `ca-certificates-bundle`, which conflicts with a
   plain `ca-certificates` install — so the Dockerfile installs
   `ca-certificates-bundle`.
