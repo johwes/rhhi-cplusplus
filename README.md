@@ -8,9 +8,10 @@ runtime image without a traditional multi-stage `COPY` of system files.
 - Stage 1 (`-builder`) compiles `main.cpp` with `libcurl-devel`.
 - Stage 2 (`core-runtime`) bind-mounts the builder filesystem
   at `/builder` for a single `RUN` step and uses the builder's `dnf` with
-  `--installroot=/` to install only runtime libs (`libcurl`, `openssl`,
-  `ca-certificates-bundle`) into the runtime rootfs. The mount is never
-  committed to a layer.
+  `--installroot=/` to install only runtime libs (`libcurl`,
+  `ca-certificates-bundle` — plus `openssl-libs`, pulled automatically
+  via `libcurl`'s soname dependencies) into the runtime rootfs. The
+  mount is never committed to a layer.
 
 ## Build (tagged by git commit)
 
