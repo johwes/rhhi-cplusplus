@@ -32,6 +32,47 @@ podman run --rm rhhi-cplusplus
 podman run --rm rhhi-cplusplus https://example.com
 ```
 
+## Dynamic linking notes (why not static?)
+
+The binary is dynamically linked against glibc and the RPM-installed
+libs. That is deliberate — static linking a C++ app in this ecosystem
+has sharp edges:
+
+- **glibc static is fragile.** A fully static glibc binary (`-static`)
+  breaks NSS (`getaddrinfo`/DNS can misbehave) and `dlopen`. There is
+  no musl in the Red Hat hardened pipeline, so "just use musl" means
+  leaving the hardened ecosystem entirely.
+- **Static libcurl drags a long tail.** You would need the `-static`
+  variants of openssl, nghttp2/3, libssh, zlib, zstd, brotli, … and you
+  own the CVE lifecycle for all of them from then on.
+- **Scanners go blind.** A statically linked binary is opaque to Grype,
+  Trivy, and OpenSCAP — the CVE surface is still there (it's inside
+  your binary), just invisible. Dynamic RPM installs keep it visible
+  (see SBOM below).
+
+Known issues with the dynamic approach:
+
+- **Builder/runtime glibc drift.** The binary is built against the
+  builder's glibc and runs against the runtime's. Both stages currently
+  track `latest`/`latest-builder`, which can drift apart — a binary
+  built against a *newer* glibc than the runtime ships will fail to
+  start. Pin both stages to the same tag/digest for anything beyond a
+  demo.
+- **Transitive closure.** `dnf install libcurl` pulls ~30 packages
+  (krb5, openldap, nghttp2/3, … — see `sbom.spdx.json`). Adding one
+  library can substantially grow the image; check `syft ... -o table`
+  before and after.
+- **Floating versions.** The `dnf install` line has no version pins, so
+  rebuilds float with the repos. Committed SBOM/vuln samples will drift
+  from what a fresh build produces. Pin versions
+  (`libcurl-8.23.0-2.hum1`) when reproducibility matters.
+- **No runtime `LD_LIBRARY_PATH` needed.** Libs land in standard paths
+  and the RPM scriptlets rebuild the `ld.so` cache, so the binary
+  resolves everything at startup with a clean environment.
+- **Stripped binary, limited debuggability.** `strip --all` shrinks the
+  image but removes symbols — keep an unstripped copy (or debuginfo) of
+  every shipped binary if you ever need to read a core dump.
+
 ## SBOM
 
 Because the runtime libraries are installed via `dnf --installroot=/`,
