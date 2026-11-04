@@ -4,12 +4,14 @@
 FROM registry.access.redhat.com/hi/core-runtime:latest-builder AS builder
 
 USER 0
-RUN dnf install -y gcc-c++ make libcurl-devel
+RUN dnf install -y gcc-c++ libcurl-devel
 WORKDIR /build
 COPY main.cpp .
 RUN g++ -O2 \
     -fstack-protector-strong \
+    -fstack-clash-protection \
     -D_FORTIFY_SOURCE=3 \
+    -D_GLIBCXX_ASSERTIONS \
     -fPIE -pie \
     -Wl,-z,relro,-z,now \
     -o /app main.cpp -lcurl && \
@@ -33,7 +35,7 @@ RUN --mount=type=bind,from=builder,target=/builder \
         --setopt=reposdir=/builder/etc/yum.repos.d \
         --setopt=install_weak_deps=False \
         --setopt=tsflags=nodocs \
-        libcurl openssl ca-certificates-bundle \
+        libcurl ca-certificates-bundle \
     && /builder/usr/bin/dnf --installroot=/ clean all \
     && rm -rf /var/cache/dnf /var/cache/yum /var/log/dnf* /var/log/hawkey.log
 
