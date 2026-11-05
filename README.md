@@ -1,5 +1,7 @@
 # rhhi-cplusplus — bind-mount shared-library example
 
+[![Supply Chain](https://github.com/johwes/rhhi-cplusplus/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/johwes/rhhi-cplusplus/actions/workflows/supply-chain.yml)
+
 Canonical bind-mount pattern for adding shared libraries to a hardened
 runtime image without a traditional multi-stage `COPY` of system files.
 
@@ -264,6 +266,35 @@ Known gap, stated plainly: only the **runtime** image carries a
 signature (`no signatures found` for `:latest-builder`). The builder is
 trusted via registry TLS/auth + digest pinning only. If that gap
 matters to you, pin both bases by digest in the Dockerfile.
+
+## Continuous supply chain (GitHub Actions)
+
+`.github/workflows/supply-chain.yml` automates this whole README on
+every push to `main` (PRs get build + scan only — nothing is pushed or
+signed from a PR):
+
+1. Verify the base via the Quay mirror + RHHI key, and fail if
+   `registry.access.redhat.com` drifts from the mirror digest.
+2. Build with `GIT_SHA`/`BUILD_DATE` args, push by short-SHA tag
+   (+ `latest`), expose the manifest digest.
+3. Syft SBOM + Grype scan; **gate fails only on Critical** — the
+   current Highs are VEX-acknowledged upstream (see above), so failing
+   on High would red-light every build by design.
+4. Keyless `cosign sign` + `attest` (SBOM `spdxjson`, scan `vuln`)
+   against the digest, using ambient GitHub OIDC — no browser, no keys.
+   SBOM and scan are also kept as per-run workflow artifacts.
+
+CI-signed artifacts carry the workflow identity, so verify them with:
+
+```sh
+ID=https://github.com/johwes/rhhi-cplusplus/.github/workflows/supply-chain.yml@refs/heads/main
+cosign verify --certificate-identity "$ID" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  quay.io/jwesterl/rhhi-cplusplus:<sha>
+```
+
+Needs two repo secrets: `QUAY_USERNAME` / `QUAY_PASSWORD` (Quay robot
+account with Write on `jwesterl/rhhi-cplusplus`).
 
 ### Enterprise extensions
 

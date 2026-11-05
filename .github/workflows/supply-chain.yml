@@ -1,0 +1,136 @@
+name: Supply Chain
+
+# Rebuild, scan, SBOM, push, sign and attest on every push to main.
+# Pull requests get build + scan only (no push, no signatures):
+# secrets are unavailable to fork PRs and nothing unsigned leaves CI.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write # ambient OIDC for keyless cosign
+
+jobs:
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Short SHA and build date
+        run: |
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: quay.io/jwesterl/rhhi-cplusplus
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v3.1.4
+
+      # The Quay mirror is expected to be content-identical to
+      # registry.access.redhat.com (same digests). Verify the signed
+      # mirror, then fail if the registry we actually build FROM drifts.
+      - name: Verify base image (RHHI Konflux key)
+        run: |
+          cosign verify --key rhhi-cosign.pub --insecure-ignore-tlog \
+            quay.io/hummingbird/core-runtime:latest
+          MIRROR=$(docker buildx imagetools inspect --raw quay.io/hummingbird/core-runtime:latest | sha256sum | cut -d' ' -f1)
+          UPSTREAM=$(docker buildx imagetools inspect --raw registry.access.redhat.com/hi/core-runtime:latest | sha256sum | cut -d' ' -f1)
+          echo "mirror=$MIRROR upstream=$UPSTREAM"
+          test "$MIRROR" = "$UPSTREAM"
+
+      - name: Log in to Quay
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            GIT_SHA=${{ env.SHORT_SHA }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+          sbom: false
+          provenance: false
+
+      - name: Resolve scan reference
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "image=$(echo '${{ steps.meta.outputs.tags }}' | head -1)" >> "$GITHUB_OUTPUT"
+          else
+            echo "image=quay.io/jwesterl/rhhi-cplusplus@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Scan target: $(grep '^image=' "$GITHUB_OUTPUT" | cut -d= -f2-)"
+
+      - name: SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.ref.outputs.image }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Install grype
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sudo sh -s -- -b /usr/local/bin
+
+      - name: Vulnerability scan (grype)
+        run: grype ${{ steps.ref.outputs.image }} -o json=vuln.grype.json
+
+      # Gate on Critical only. Highs are VEX-acknowledged for this image
+      # (see README: all current matches are known_affected upstream with
+      # no available remediation) — failing on High would red-light every
+      # build by design. Tighten when the threat model says so.
+      - name: Gate on Critical vulnerabilities
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          ms = json.load(open('vuln.grype.json')).get('matches', [])
+          crit = [m for m in ms if m.get('vulnerability', {}).get('severity') == 'Critical']
+          print(f"matches={len(ms)} critical={len(crit)}")
+          for m in crit:
+              v, a = m['vulnerability'], m['artifact']
+              print(f"CRITICAL {a['name']} {a['version']} {v['id']}")
+          sys.exit(1 if crit else 0)
+          EOF
+
+      - name: Upload SBOM and scan
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-and-scan-${{ env.SHORT_SHA }}
+          path: |
+            sbom.spdx.json
+            vuln.grype.json
+
+      - name: Sign image (keyless OIDC)
+        if: github.event_name != 'pull_request'
+        run: cosign sign --yes ${{ steps.ref.outputs.image }}
+
+      - name: Attest SBOM and scan (keyless OIDC)
+        if: github.event_name != 'pull_request'
+        run: |
+          cosign attest --predicate sbom.spdx.json --type spdxjson --yes ${{ steps.ref.outputs.image }}
+          cosign attest --predicate vuln.grype.json --type vuln --yes ${{ steps.ref.outputs.image }}
