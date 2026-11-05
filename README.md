@@ -67,12 +67,14 @@ has sharp edges:
 
 Known issues with the dynamic approach:
 
-- **Builder/runtime glibc drift.** The binary is built against the
-  builder's glibc and runs against the runtime's. Both stages currently
-  track `latest`/`latest-builder`, which can drift apart — a binary
-  built against a *newer* glibc than the runtime ships will fail to
-  start. Pin both stages to the same tag/digest for anything beyond a
-  demo.
+- **No builder/runtime glibc drift — by construction.** Both stages are
+  variants of the *same* `hi/core-runtime` image (`latest` /
+  `latest-builder`), published together from one source with one glibc
+  (verified: `glibc-2.43-9.2.hum1` in both). Cross-glibc
+  incompatibility can't arise here the way it can when pairing an
+  arbitrary builder with an arbitrary runtime. Pinning by digest is
+  still worthwhile, but for **reproducibility** (a `latest` move changes
+  both ends at once), not to avoid breakage.
 - **Transitive closure.** `dnf install libcurl` pulls ~30 packages
   (krb5, openldap, nghttp2/3, … — see `sbom.spdx.json`). Adding one
   library can substantially grow the image; check `syft ... -o table`
