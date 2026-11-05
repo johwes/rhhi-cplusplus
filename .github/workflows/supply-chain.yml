@@ -39,9 +39,20 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/setup-buildx-action@v3
-      - uses: sigstore/cosign-installer@v3
-        with:
-          cosign-release: v3.1.4
+      # Pinned manual install: cosign-installer@v3's bootstrap still
+      # looks for a legacy `.sig` asset, but v3 releases publish
+      # `.sigstore.json` bundles instead (HTTP 404 -> exit 22). So pin
+      # the binary and verify it against the published checksums file.
+      # Trade-off, stated plainly: checksum-over-TLS, not a detached
+      # signature check. Revisit when the installer supports v3 assets.
+      - name: Install cosign v3.1.4 (pinned, checksum-verified)
+        run: |
+          V=v3.1.4
+          curl -sSfL -o /tmp/cosign https://github.com/sigstore/cosign/releases/download/$V/cosign-linux-amd64
+          curl -sSfL -o /tmp/checksums.txt https://github.com/sigstore/cosign/releases/download/$V/cosign_checksums.txt
+          ( cd /tmp && sha256sum -c --ignore-missing <(grep ' cosign-linux-amd64$' checksums.txt) )
+          sudo install -m755 /tmp/cosign /usr/local/bin/cosign
+          cosign version
 
       # The Quay mirror is expected to be content-identical to
       # registry.access.redhat.com (same digests). Verify the signed
