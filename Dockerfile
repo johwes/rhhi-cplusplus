@@ -1,7 +1,13 @@
 # ============================================================
 # Stage 1: Compile the C++ application
 # ============================================================
-FROM registry.access.redhat.com/hi/core-runtime:latest-builder AS builder
+# Base images are parameterized so CI can pin the exact verified
+# digest (see .github/workflows/supply-chain.yml). Both ARGs must be
+# declared here, before the first FROM, to stay in global scope.
+# Defaults track the published tags for local builds.
+ARG BUILDER_IMAGE=registry.access.redhat.com/hi/core-runtime:latest-builder
+ARG BASE_IMAGE=registry.access.redhat.com/hi/core-runtime:latest
+FROM ${BUILDER_IMAGE} AS builder
 
 USER 0
 RUN dnf install -y gcc-c++ libcurl-devel
@@ -21,7 +27,7 @@ RUN g++ -O2 \
 # Stage 2: Install runtime shared libraries into the
 #           hardened core-runtime image using --installroot
 # ============================================================
-FROM registry.access.redhat.com/hi/core-runtime:latest
+FROM ${BASE_IMAGE}
 
 # Build metadata: override the inherited base-image labels so scanners
 # assess THIS build (not the base image) for age and provenance.
