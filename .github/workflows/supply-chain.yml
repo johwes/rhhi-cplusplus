@@ -31,7 +31,7 @@ jobs:
     steps:
       # Third-party actions pinned to immutable SHAs (OpenSSF/SLSA);
       # version comments for readability.
-      - uses: actions/checkout@11d5960a3267 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Short SHA and build date
         run: |
@@ -40,14 +40,14 @@ jobs:
 
       - name: Tags
         id: meta
-        uses: docker/metadata-action@c299e40c6544 # v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: quay.io/jwesterl/rhhi-cplusplus
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - uses: docker/setup-buildx-action@8d2750c68a42 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       # Pinned manual install: cosign-installer@v3's bootstrap still
       # looks for a legacy `.sig` asset, but v3 releases publish
       # `.sigstore.json` bundles instead (HTTP 404 -> exit 22). So pin
@@ -88,7 +88,7 @@ jobs:
 
       - name: Log in to Quay
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@c94ce9fb4685 # v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: quay.io
           username: ${{ secrets.QUAY_USERNAME }}
@@ -96,7 +96,7 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@10e90e3645ea # v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
@@ -121,7 +121,7 @@ jobs:
           echo "Scan target: $(grep '^image=' "$GITHUB_OUTPUT" | cut -d= -f2-)"
 
       - name: SBOM (syft)
-        uses: anchore/sbom-action@e22c38990414 # v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: ${{ steps.ref.outputs.image }}
           format: spdx-json
@@ -161,7 +161,7 @@ jobs:
           EOF
 
       - name: Upload SBOM and scan
-        uses: actions/upload-artifact@ea165f8d65b6 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-and-scan-${{ env.SHORT_SHA }}
           path: |
