@@ -17,8 +17,20 @@ runtime image without a traditional multi-stage `COPY` of system files.
 
 ```sh
 TAG=$(git rev-parse --short HEAD)
-podman build -t quay.io/jwesterl/rhhi-cplusplus:$TAG -t quay.io/jwesterl/rhhi-cplusplus:latest .
+podman build \
+  --build-arg GIT_SHA=$TAG \
+  --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -t quay.io/jwesterl/rhhi-cplusplus:$TAG \
+  -t quay.io/jwesterl/rhhi-cplusplus:latest .
 ```
+
+The build args stamp our own OCI labels (`created`, `revision`,
+`name`, `title`, `source`) onto the final stage. Without them, the
+image inherits the *base image's* labels (`org.opencontainers.image.
+created`, `revision`, `name: hi/core-runtime`) — scanners doing age
+assessment would date your image to the base build, not yours. The
+`cpe: cpe:/a:redhat:hummingbird:1` label is intentionally inherited:
+this image is still a hummingbird product derivative.
 
 With Docker (requires BuildKit for the `--mount=type=bind,from=...` step):
 
@@ -86,6 +98,8 @@ statically link instead).
 ```sh
 TAG=$(git rev-parse --short HEAD)
 podman build --sbom=syft-spdx --sbom-output sbom.spdx.json \
+  --build-arg GIT_SHA=$TAG \
+  --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
   -t quay.io/jwesterl/rhhi-cplusplus:$TAG \
   -t quay.io/jwesterl/rhhi-cplusplus:latest .
 podman push quay.io/jwesterl/rhhi-cplusplus:$TAG
@@ -155,6 +169,61 @@ cosign verify-attestation --type spdxjson $IMG \
 The committed `vuln.grype.json` is a point-in-time sample: 12 matches
 (4 High, 6 Medium, 2 Low) — even hardened-pipeline libs carry CVEs,
 which is precisely why the RPM-visible dynamic approach matters.
+
+## Supply-chain position (RHHI scanning model)
+
+Red Hat's [security scanning integration guide](https://security.access.redhat.com/)
+describes the RHHI ecosystem as three components — here's how this
+derived image maps onto each:
+
+1. **CSAF/VEX feed — triaged, all 12 matches corroborated.** Grype
+   matches were checked against the per-CVE VEX documents at
+   `https://security.access.redhat.com/data/csaf/v2/vex-feed/<year>/<cve>.json`
+   (lowercase filename). Result: every match is `known_affected` for the
+   hummingbird product streams we ship (`glibc.src`, `gcc.src`,
+   `cyrus-sasl.src`) — the scanner wasn't crying wolf. Two nuances:
+   - CVE-2026-115455 is `fixed` in the **gcc13** stream
+     (RHSA-2026:94989) but `known_affected` in **gcc 16.x**, which is
+     what our `libstdc++ 16.2.1` comes from. Stream matters, not just
+     CVE ID.
+   - The cyrus-sasl VEX suggests removing `cyrus-sasl-md5` if
+     DIGEST-MD5 isn't needed — not applicable here (only
+     `cyrus-sasl-lib` is installed; `install_weak_deps=False`).
+   Grype can ingest VEX directly (`grype --vex`, OpenVEX format) to
+   filter `not_affected` — worth wiring into CI once the match count
+   justifies it.
+2. **Image metadata — ours, not just inherited.** The base's
+   `/usr/share/buildinfo/labels.json` and OCI labels ride along, but
+   `created`/`revision`/`name` are overridden at our build (see Build
+   section) so scanner age-assessment dates *this* image. The `cpe`
+   label stays `cpe:/a:redhat:hummingbird:1` — the key that links the
+   image to VEX statements.
+3. **Package data — RPM DB + attested SBOM.** The RPM DB updated by
+   `--installroot` is what Syft/Grype read. Note the asymmetry with
+   official RHHI images: Red Hat attaches release SBOMs retrievable via
+   `cosign download sbom`; ours travels as a DSSE attestation
+   (`verify-attestation --type spdxjson`) because `cosign attach sbom`
+   is deprecated in v3.
+
+## Verifying the base images (RHHI Konflux key)
+
+`rhhi-cosign.pub` is Red Hat's Hummingbird release key (key-based
+signing, so verification skips the transparency log). The Quay mirror
+is content-identical to `registry.access.redhat.com` (same digests —
+verified 2026-11-05 for both `core-runtime:latest` and
+`:latest-builder`), so verify the mirror and compare digests:
+
+```sh
+cosign verify --key rhhi-cosign.pub --insecure-ignore-tlog \
+  quay.io/hummingbird/core-runtime:latest
+skopeo inspect docker://registry.access.redhat.com/hi/core-runtime:latest \
+  | grep Digest
+```
+
+Known gap, stated plainly: only the **runtime** image carries a
+signature (`no signatures found` for `:latest-builder`). The builder is
+trusted via registry TLS/auth + digest pinning only. If that gap
+matters to you, pin both bases by digest in the Dockerfile.
 
 ## Notes (verified with podman against `core-runtime:latest`)
 
