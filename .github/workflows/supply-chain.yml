@@ -83,8 +83,10 @@ jobs:
           echo "builder: mirror=$M_BD upstream=$U_BD"
           test "$M_RT" = "$U_RT"
           test "$M_BD" = "$U_BD"
-          echo "base_ref=registry.access.redhat.com/hi/core-runtime@$M_RT" >> "$GITHUB_OUTPUT"
-          echo "builder_ref=registry.access.redhat.com/hi/core-runtime@$M_BD" >> "$GITHUB_OUTPUT"
+          # NOTE: imagetools output is hashed raw, yielding hex only —
+          # the `sha256:` prefix is mandatory for a valid pinned ref.
+          echo "base_ref=registry.access.redhat.com/hi/core-runtime@sha256:$M_RT" >> "$GITHUB_OUTPUT"
+          echo "builder_ref=registry.access.redhat.com/hi/core-runtime@sha256:$M_BD" >> "$GITHUB_OUTPUT"
 
       - name: Log in to Quay
         if: github.event_name != 'pull_request'
