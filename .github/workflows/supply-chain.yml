@@ -8,6 +8,9 @@ on:
     branches: [main]
     # Docs-only changes skip the pipeline: no image to build, no digest
     # to sign. Any commit touching code/Dockerfile still runs the full flow.
+    # Caveat (not currently applicable — main has no required status
+    # checks): if this workflow ever becomes required, docs-only PRs
+    # would wait on it forever. Revisit then.
     paths-ignore: ['**.md', '.gitignore', 'LICENSE*']
   pull_request:
     branches: [main]
@@ -26,7 +29,9 @@ jobs:
   supply-chain:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions pinned to immutable SHAs (OpenSSF/SLSA);
+      # version comments for readability.
+      - uses: actions/checkout@11d5960a3267 # v4
 
       - name: Short SHA and build date
         run: |
@@ -35,14 +40,14 @@ jobs:
 
       - name: Tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c6544 # v5
         with:
           images: quay.io/jwesterl/rhhi-cplusplus
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42 # v3
       # Pinned manual install: cosign-installer@v3's bootstrap still
       # looks for a legacy `.sig` asset, but v3 releases publish
       # `.sigstore.json` bundles instead (HTTP 404 -> exit 22). So pin
@@ -61,19 +66,29 @@ jobs:
 
       # The Quay mirror is expected to be content-identical to
       # registry.access.redhat.com (same digests). Verify the signed
-      # mirror, then fail if the registry we actually build FROM drifts.
-      - name: Verify base image (RHHI Konflux key)
+      # mirror, check parity for BOTH variants (the builder carries no
+      # signature, so digest equality is its only check), and export the
+      # pinned refs the build must consume — closing the TOCTOU gap
+      # between verification and build.
+      - name: Verify bases (RHHI Konflux key + digest parity)
+        id: bases
         run: |
           cosign verify --key rhhi-cosign.pub --insecure-ignore-tlog \
             quay.io/hummingbird/core-runtime:latest
-          MIRROR=$(docker buildx imagetools inspect --raw quay.io/hummingbird/core-runtime:latest | sha256sum | cut -d' ' -f1)
-          UPSTREAM=$(docker buildx imagetools inspect --raw registry.access.redhat.com/hi/core-runtime:latest | sha256sum | cut -d' ' -f1)
-          echo "mirror=$MIRROR upstream=$UPSTREAM"
-          test "$MIRROR" = "$UPSTREAM"
+          mirror() { docker buildx imagetools inspect --raw "quay.io/hummingbird/$1" | sha256sum | cut -d' ' -f1; }
+          upstream() { docker buildx imagetools inspect --raw "registry.access.redhat.com/hi/$1" | sha256sum | cut -d' ' -f1; }
+          M_RT=$(mirror core-runtime:latest); U_RT=$(upstream core-runtime:latest)
+          M_BD=$(mirror core-runtime:latest-builder); U_BD=$(upstream core-runtime:latest-builder)
+          echo "runtime: mirror=$M_RT upstream=$U_RT"
+          echo "builder: mirror=$M_BD upstream=$U_BD"
+          test "$M_RT" = "$U_RT"
+          test "$M_BD" = "$U_BD"
+          echo "base_ref=registry.access.redhat.com/hi/core-runtime@$M_RT" >> "$GITHUB_OUTPUT"
+          echo "builder_ref=registry.access.redhat.com/hi/core-runtime@$M_BD" >> "$GITHUB_OUTPUT"
 
       - name: Log in to Quay
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb4685 # v3
         with:
           registry: quay.io
           username: ${{ secrets.QUAY_USERNAME }}
@@ -81,7 +96,7 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645ea # v6
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
@@ -90,6 +105,8 @@ jobs:
           build-args: |
             GIT_SHA=${{ env.SHORT_SHA }}
             BUILD_DATE=${{ env.BUILD_DATE }}
+            BASE_IMAGE=${{ steps.bases.outputs.base_ref }}
+            BUILDER_IMAGE=${{ steps.bases.outputs.builder_ref }}
           sbom: false
           provenance: false
 
@@ -104,14 +121,24 @@ jobs:
           echo "Scan target: $(grep '^image=' "$GITHUB_OUTPUT" | cut -d= -f2-)"
 
       - name: SBOM (syft)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c38990414 # v0
         with:
           image: ${{ steps.ref.outputs.image }}
           format: spdx-json
           output-file: sbom.spdx.json
 
-      - name: Install grype
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sudo sh -s -- -b /usr/local/bin
+      # Pinned like cosign above: the install.sh pipe runs an unpinned
+      # remote script as root, which this workflow's threat model doesn't
+      # accept. Checksum verifies integrity (TLS transport), same caveat.
+      - name: Install grype v0.121.1 (pinned, checksum-verified)
+        run: |
+          V=v0.121.1
+          cd /tmp
+          curl -sSfL -O https://github.com/anchore/grype/releases/download/$V/grype_${V#v}_linux_amd64.tar.gz
+          curl -sSfL -o grype-checksums.txt https://github.com/anchore/grype/releases/download/$V/grype_${V#v}_checksums.txt
+          sha256sum -c <(grep " grype_${V#v}_linux_amd64.tar.gz$" grype-checksums.txt)
+          sudo tar -xzf grype_${V#v}_linux_amd64.tar.gz -C /usr/local/bin grype
+          grype version
 
       - name: Vulnerability scan (grype)
         run: grype ${{ steps.ref.outputs.image }} -o json=vuln.grype.json
@@ -134,7 +161,7 @@ jobs:
           EOF
 
       - name: Upload SBOM and scan
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6 # v4
         with:
           name: sbom-and-scan-${{ env.SHORT_SHA }}
           path: |

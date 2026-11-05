@@ -26,6 +26,13 @@ podman build \
   -t quay.io/jwesterl/rhhi-cplusplus:latest .
 ```
 
+`BASE_IMAGE` / `BUILDER_IMAGE` build args accept a fully-pinned
+`registry.access.redhat.com/hi/core-runtime@sha256:<digest>` reference
+(defaults track the floating tags for local builds). CI always passes
+the digests it just verified, so the built image is cryptographically
+tied to the checked base — no tag-move window between verification
+and build.
+
 The build args stamp our own OCI labels (`created`, `revision`,
 `name`, `title`, `source`) onto the final stage. Without them, the
 image inherits the *base image's* labels (`org.opencontainers.image.
@@ -272,8 +279,9 @@ skopeo inspect docker://registry.access.redhat.com/hi/core-runtime:latest \
 
 Known gap, stated plainly: only the **runtime** image carries a
 signature (`no signatures found` for `:latest-builder`). The builder is
-trusted via registry TLS/auth + digest pinning only. If that gap
-matters to you, pin both bases by digest in the Dockerfile.
+trusted via registry TLS/auth plus a CI-enforced digest-parity check
+against the Quay mirror — not nothing, but not a signature either. If
+that gap matters to you, pin both bases by digest in the Dockerfile.
 
 ## Continuous supply chain (GitHub Actions)
 
