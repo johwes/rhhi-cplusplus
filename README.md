@@ -205,6 +205,46 @@ derived image maps onto each:
    (`verify-attestation --type spdxjson`) because `cosign attach sbom`
    is deprecated in v3.
 
+### Scanner workflow for this image
+
+Following the guide's recommended workflow, concretely:
+
+1. **Identify the product:** `cpe: cpe:/a:redhat:hummingbird:1` (inherited
+   label) + our `name: rhhi-cplusplus` label (overridden at build).
+   Filesystem-level scanners can read the same values from
+   `/usr/share/buildinfo/labels.json` (note: `created`/`revision` there
+   still describe the *base* build — the OCI labels are authoritative
+   for this image).
+2. **Check the VEX feed:** per-CVE documents (lowercase filenames) under
+   the feed URL above; match on the hummingbird CPE, then on product
+   names (`hummingbird-1:<srpm>.src`) for the fixed/affected split.
+3. **Enumerate packages:** committed `sbom.spdx.json`, or
+   `syft scan registry:quay.io/jwesterl/rhhi-cplusplus:<tag>`, or the
+   RPM DB directly. Syft PURLs look like
+   `pkg:rpm/hummingbird/libcurl@8.23.0-2.hum1?arch=x86_64&distro=...&upstream=...src.rpm`
+   — the `upstream` qualifier ties the binary RPM to its source.
+4. **Correlate:** package name/version/PURL against VEX product status
+   (done in §1 above for the current 12 matches).
+5. **Assess image age:** our overridden `org.opencontainers.image.created`
+   vs. advisory fix dates.
+
+Out of scope here by design: Hermeto/Mobster build-provenance SBOMs
+(no lockfile dependencies in this repo — system RPMs are the whole
+supply chain), and the `quay.io/hummingbird-community/` and `-rawhide`
+registries. Official image releases and advisories live in the
+[Red Hat Container Catalog](https://catalog.redhat.com/).
+
+### References (from the RHHI scanning guide)
+
+- [CSAF VEX feed](https://security.access.redhat.com/data/csaf/v2/vex-feed/)
+  · [Advisories](https://security.access.redhat.com/data/csaf/v2/advisories/)
+- [Embedded metadata schema](https://github.com/RedHatProductSecurity/security-data-guidelines/blob/main/schema/embedded_metadata.v1.schema.json)
+- [Syft](https://github.com/anchore/syft) · [Hermeto](https://github.com/hermetoproject/hermeto) · [Mobster](https://github.com/konflux-ci/mobster) · [Cosign](https://github.com/sigstore/cosign) · [SPDX 2.3](https://spdx.github.io/spdx-spec/v2.3/)
+- [RHHI RPMs](https://packages.redhat.com/api/pulp-content/public-hummingbird/source/Packages)
+- Registries: `registry.access.redhat.com/hi/` (production),
+  `quay.io/hummingbird/` (mirror), `quay.io/hummingbird-community/`,
+  `quay.io/hummingbird-rawhide/` (dev)
+
 ## Verifying the base images (RHHI Konflux key)
 
 `rhhi-cosign.pub` is Red Hat's Hummingbird release key (key-based
