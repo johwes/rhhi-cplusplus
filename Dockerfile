@@ -23,6 +23,16 @@ RUN g++ -O2 \
 # ============================================================
 FROM registry.access.redhat.com/hi/core-runtime:latest
 
+# Build metadata: override the inherited base-image labels so scanners
+# assess THIS build (not the base image) for age and provenance.
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.created=$BUILD_DATE \
+      org.opencontainers.image.revision=$GIT_SHA \
+      org.opencontainers.image.source="https://github.com/johwes/rhhi-cplusplus" \
+      org.opencontainers.image.title="rhhi-cplusplus" \
+      name="rhhi-cplusplus"
+
 USER 0
 # Bind-mount the builder stage to get access to dnf, then
 # install only the runtime libs (not -devel headers) into
