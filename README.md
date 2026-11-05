@@ -265,6 +265,26 @@ signature (`no signatures found` for `:latest-builder`). The builder is
 trusted via registry TLS/auth + digest pinning only. If that gap
 matters to you, pin both bases by digest in the Dockerfile.
 
+### Enterprise extensions
+
+The flows above use public infrastructure. Two Red Hat products are
+the graduation path when that stops being acceptable:
+
+- [Trusted Artifact Signer](https://developers.redhat.com/products/trusted-artifact-signer) —
+  self-hosted Sigstore (Fulcio + Rekor + TSA + TUF). Use it when the
+  public Sigstore instance is off the table (air-gapped builds,
+  compliance regimes that forbid publishing build metadata to a public
+  transparency log, or an org-owned trust root). The cosign commands in
+  this repo keep the same shape; only the trust root and OIDC issuer
+  change. Prerequisite: runs on OpenShift, so treat it as the
+  production rollout, not a quick swap.
+- [Trusted Profile Analyzer](https://developers.redhat.com/products/trusted-profile-analyzer) —
+  centralized SBOM ingestion with vulnerability/VEX correlation and
+  policy enforcement. It productizes the manual triage in the
+  supply-chain section above (grype output → CSAF VEX → verdict).
+  Overkill for a single demo image; the natural home for this workflow
+  once it spans many images and teams.
+
 ## Notes (verified with podman against `core-runtime:latest`)
 
 - This base's `dnf` rejects `--nodocs`; the Dockerfile uses
