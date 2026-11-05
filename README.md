@@ -277,7 +277,10 @@ matters to you, pin both bases by digest in the Dockerfile.
 
 `.github/workflows/supply-chain.yml` automates this whole README on
 every push to `main` (PRs get build + scan only — nothing is pushed or
-signed from a PR):
+signed from a PR). Docs-only pushes (`*.md`, `.gitignore`, `LICENSE*`)
+skip the pipeline via `paths-ignore`: no code changed, so no new image
+or signatures — the trade-off is that such commits have no matching
+image tag.
 
 1. Verify the base via the Quay mirror + RHHI key, and fail if
    `registry.access.redhat.com` drifts from the mirror digest.

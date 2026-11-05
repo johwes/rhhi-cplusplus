@@ -6,8 +6,12 @@ name: Supply Chain
 on:
   push:
     branches: [main]
+    # Docs-only changes skip the pipeline: no image to build, no digest
+    # to sign. Any commit touching code/Dockerfile still runs the full flow.
+    paths-ignore: ['**.md', '.gitignore', 'LICENSE*']
   pull_request:
     branches: [main]
+    paths-ignore: ['**.md', '.gitignore', 'LICENSE*']
   workflow_dispatch:
 
 concurrency:
