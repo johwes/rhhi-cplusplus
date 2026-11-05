@@ -113,6 +113,12 @@ way — it lists `libcurl 8.23.0`, `openssl-libs 3.5.9`,
 `ca-certificates-bundle`, etc. with `rpm` as the package type. Available
 presets: `syft-spdx`, `syft`/`syft-cyclonedx`, `trivy`/`trivy-spdx`.
 
+> Sample freshness: `sbom.spdx.json` / `vuln.grype.json` in git are
+> curated point-in-time snapshots (currently matching the `:ff51330`
+> build). Every CI run regenerates both and keeps them as per-run
+> workflow artifacts — consult those (or re-scan the digest) for the
+> current image rather than trusting the committed copies blindly.
+
 > Limitation, verified 2026-11-04: `podman push` does **not** attach the
 > SBOM as an OCI referrer — the referrers list for the pushed digest is
 > empty (`GET /v2/jwesterl/rhhi-cplusplus/referrers/<digest>` →
@@ -295,6 +301,27 @@ cosign verify --certificate-identity "$ID" \
 
 Needs two repo secrets: `QUAY_USERNAME` / `QUAY_PASSWORD` (Quay robot
 account with Write on `jwesterl/rhhi-cplusplus`).
+
+## Operational notices
+
+- **Local Quay logins expire.** `podman login quay.io` sessions have
+  lapsed mid-session twice during this project (push rejected with
+  `authentication required`). If a push fails that way, just
+  `podman login quay.io` again. CI is unaffected — it authenticates
+  with the robot secrets on every run.
+- **Prefer digests over tags with cosign.** Cosign warns that tags are
+  mutable (`...uses a tag, not a digest...`) and tag references may be
+  refused in future releases. Sign, attest, and verify against
+  `quay.io/jwesterl/rhhi-cplusplus@sha256:<digest>` (the digest is in
+  the CI logs and on the Quay tag page).
+- **Committed SBOM/vuln files are snapshots, not live state.** See the
+  box in the SBOM section. Workflow artifacts expire with GitHub's
+  retention policy; the attestations on the image digest do not.
+- **Base-image trust is split.** Runtime base: signature-verified.
+  Builder base: unsigned, trusted via TLS/auth + digest comparison.
+  Neither is pinned by digest in the Dockerfile — a `latest` move
+  changes what you build from silently. The CI base check catches
+  mirror/upstream drift, not upstream tag moves.
 
 ### Enterprise extensions
 
